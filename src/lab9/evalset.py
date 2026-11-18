@@ -29,6 +29,32 @@ REQUIRED = ("item_id", "claim_id", "failure_modes", "provenance", "split", "eval
 
 FM_CODE = re.compile(r"FM-\d{2}")
 
+# M1 taxonomy coverage for the public v1 claims. These are the failure modes an
+# item is intended to exercise, not a claim that the baseline fails on every item.
+FAILURE_MODES_BY_CLAIM: dict[str, list[str]] = {
+    "C-001": ["FM-01"],
+    "C-002": ["FM-03"],
+    "C-003": ["FM-04"],
+    "C-004": ["FM-01"],
+    "C-005": ["FM-01", "FM-09"],
+    "C-006": ["FM-06"],
+    "C-007": ["FM-02"],
+    "C-008": ["FM-04"],
+    "C-009": ["FM-02"],
+    "C-010": ["FM-01"],
+    "C-011": ["FM-04"],
+    "C-012": ["FM-04"],
+    "C-013": ["FM-02"],
+    "C-014": ["FM-04", "FM-05"],
+}
+
+TRACE_PROVENANCE_BY_CLAIM: dict[str, dict[str, str]] = {
+    "C-002": {
+        "from_trace": "swarm C-002@55 (user trace output)",
+        "checked_by": "trace_replay",
+    },
+}
+
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -43,18 +69,22 @@ def build(source: Path = SOURCE) -> tuple[int, int]:
     items, labels = [], {}
     for n, claim in enumerate(claims, start=1):
         item_id = f"E-{n:03d}"
+        claim_id = claim["claim_id"]
+        if claim_id not in FAILURE_MODES_BY_CLAIM:
+            raise ValueError(f"{claim_id}: add an M1 failure-mode mapping before building eval set v1")
+        provenance = {"source": "lab8_public", "matrix_id": claim.get("matrix_id"),
+                      "from_trace": None, "generator": None,
+                      "label_by": "lab8_matrix", "checked_by": None}
+        provenance.update(TRACE_PROVENANCE_BY_CLAIM.get(claim_id, {}))
         items.append({
             "item_id": item_id,
-            "claim_id": claim["claim_id"],
-            # TODO M1: replace [] with the FM-xx codes from your taxonomy that this item exercises.
-            "failure_modes": [],
-            "provenance": {"source": "lab8_public", "matrix_id": claim.get("matrix_id"),
-                           "from_trace": None, "generator": None,
-                           "label_by": "lab8_matrix", "checked_by": None},
+            "claim_id": claim_id,
+            "failure_modes": FAILURE_MODES_BY_CLAIM[claim_id],
+            "provenance": provenance,
             "split": "regression",
             "eval_set_version": VERSION,
         })
-        labels[claim["claim_id"]] = claim["expected"]
+        labels[claim_id] = claim["expected"]
     ITEMS.parent.mkdir(parents=True, exist_ok=True)
     ITEMS.write_text("".join(json.dumps(i, ensure_ascii=False) + "\n" for i in items), encoding="utf-8")
     LABELS.write_text(json.dumps(labels, ensure_ascii=False, indent=2), encoding="utf-8")
